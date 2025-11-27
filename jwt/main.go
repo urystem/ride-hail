@@ -4,7 +4,6 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
-	"fmt"
 )
 
 // func main() {
@@ -33,12 +32,12 @@ func CheckPassword(password, secret, storedHash string) bool {
 
 func main() {
 	// token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.RegisteredClaims{
-	// 	Subject: ,
+	// 	Subject: "",
 	// })
 
-	sec := "it-is-my-secret-key-and-it-is-mine"
-	pass := "admin123"
-	has := HashPassword(pass, sec)
-	fmt.Println(has)
-	fmt.Println(CheckPassword(pass, sec, has))
+	// sec := "it-is-my-secret-key-and-it-is-mine"
+	// pass := "admin123"
+	// has := HashPassword(pass, sec)
+	// fmt.Println(has)
+	// fmt.Println(CheckPassword(pass, sec, has))
 }

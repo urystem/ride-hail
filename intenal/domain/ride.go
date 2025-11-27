@@ -12,10 +12,11 @@ type User struct {
 	Email        string         `db:"email" json:"email"`
 	Role         string         `db:"role" json:"role"`
 	Status       string         `db:"status" json:"status"`
-	PasswordHash string         `db:"password_hash" json:"-"` // не экспортировать в JSON
+	PasswordHash string         `db:"password_hash" json:"password"` // не экспортировать в JSON
 	Attrs        map[string]any `db:"attrs" json:"attrs"`
 }
 
+// for sql
 type RideRequest struct {
 	PassengerID          string  `json:"passenger_id"`
 	PickupLatitude       float64 `json:"pickup_latitude"`
@@ -50,18 +51,6 @@ type CancelRideResponse struct {
 	Message     string    `json:"message"`
 }
 
-type DriverLocationUpdate struct {
-	DriverID string `json:"driver_id"`
-	RideID   string `json:"ride_id"`
-	Location struct {
-		Lat float64 `json:"lat"`
-		Lng float64 `json:"lng"`
-	} `json:"location"`
-	SpeedKMH       float64   `json:"speed_kmh"`
-	HeadingDegrees float64   `json:"heading_degrees"`
-	Timestamp      time.Time `json:"timestamp"`
-}
-
 type LocationCoordinateUpdate struct {
 	DriverID string `json:"driver_id"`
 	RideID   string `json:"ride_id"`
@@ -75,11 +64,29 @@ type LocationCoordinateUpdate struct {
 	OldCoorID      string
 }
 
+// rabbit
 type RideStatusUpdate struct {
-	DriverID string `json:"driver_id"`
-	RideID   string `json:"ride_id"`
+	RideID        string    `json:"ride_id"`
+	Status        string    `json:"status"`
+	Timestamp     time.Time `json:"timestamp"`
+	DriverID      string    `json:"driver_id"`
+	CorrelationID string    `json:"correlation_id"`
 }
 
-type RideStatusCompleteUpdate struct{
-	
+type Coordinates struct {
+	Lat     float64 `json:"lat"`
+	Lng     float64 `json:"lng"`
+	Address string  `json:"address"`
+}
+
+type RideRequestRabbit struct {
+	RideID              string      `json:"ride_id"`
+	RideNumber          string      `json:"ride_number"`
+	PickupLocation      Coordinates `json:"pickup_location"`
+	DestinationLocation Coordinates `json:"destination_location"`
+	RideType            string      `json:"ride_type"`
+	EstimatedFare       float64     `json:"estimated_fare"`
+	MaxDistanceKM       float64     `json:"max_distance_km"`
+	TimeoutSeconds      int         `json:"timeout_seconds"`
+	CorrelationID       string      `json:"correlation_id"`
 }

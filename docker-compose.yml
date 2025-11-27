@@ -1,0 +1,51 @@
+services:
+  rabbitmq:
+    image: rabbitmq:4.2.0-management-alpine
+    container_name: rabbitmq
+    ports:
+      - "${RABBITMQ_PORT:-5672}:5672"   # AMQP protocol
+      - "15672:15672" # Web UI (http://localhost:15672)
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-guest}
+  # builder:
+  #   image: golang:1.24.4-alpine3.22
+  #   working_dir: /app
+  #   volumes:
+  #     - .:/app       # текущая папка хоста монтируется в /app
+  #   command: >
+  #     sh -c "CGO_ENABLED=0 GOOS=linux go build -ldflags='-s -w -extldflags \"-static\"' -o pizza cmd/main.go"      
+  db:
+    image: postgres:alpine3.22
+    container_name: rss_db
+    ports:
+      - ${DB_PORT:-5432}:5432
+    # volumes:
+    #   - pgdata:/var/lib/postgresql/data
+    environment:
+      POSTGRES_USER: ${DB_USER:-ridehail_user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-ridehail_pass}
+      POSTGRES_DB: ${DB_NAME:-ridehail_db}
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${DB_USER:-ridehail_user} -d ${DB_NAME:-ridehail_db}" ]
+      interval: 3s
+      timeout: 5s
+      retries: 10
+
+  migrate:
+    image: migrate/migrate
+    container_name: rss_migrate
+    volumes:
+      - ./migrations:/migrations
+    entrypoint:
+      [
+        "migrate",
+        "-path",
+        "/migrations",
+        "-database",
+        "postgres://${DB_USER:-ridehail_user}:${DB_PASSWORD:-ridehail_pass}@db:5432/${DB_NAME:-ridehail_db}?sslmode=disable",
+        "up"
+      ]
+    depends_on:
+      db:
+        condition: service_healthy

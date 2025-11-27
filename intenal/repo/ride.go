@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"taxi-hailing/intenal/domain"
 	"time"
 
@@ -12,21 +11,19 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-type ride struct {
-	slogg *slog.Logger
-	*pgxpool.Pool
+type RideRepo struct {
+	db *pgxpool.Pool
 }
 
-func NewRideRepo(slogg *slog.Logger, pool *pgxpool.Pool) any {
-	return &ride{
-		slogg: slogg,
-		Pool:  pool,
+func NewRideRepo(pool *pgxpool.Pool) *RideRepo {
+	return &RideRepo{
+		db: pool,
 	}
 }
 
-func (p *ride) RegisterPassenger(ctx context.Context, user *domain.User) (string, error) {
+func (p *RideRepo) RegisterPassenger(ctx context.Context, user *domain.User) (string, error) {
 	var id string
-	err := p.QueryRow(ctx, `
+	err := p.db.QueryRow(ctx, `
 			INSERT INTO users (name, email, role, password_hash)
 			VALUES ($1, $2, 'PASSENGER', $3)
 			RETURNING id`,
@@ -34,9 +31,9 @@ func (p *ride) RegisterPassenger(ctx context.Context, user *domain.User) (string
 	return id, err
 }
 
-func (p *ride) GetPassword(ctx context.Context, email string) (string, error) {
+func (p *RideRepo) GetPassword(ctx context.Context, email string) (string, error) {
 	var passwordHash string
-	err := p.QueryRow(ctx, `
+	err := p.db.QueryRow(ctx, `
 		SELECT password_hash
 		FROM users
 		WHERE email = $1
@@ -44,9 +41,9 @@ func (p *ride) GetPassword(ctx context.Context, email string) (string, error) {
 	return passwordHash, err
 }
 
-func (p *ride) CreateRideTx(ctx context.Context, r *domain.RideRequest, res *domain.RideResponse) error {
+func (p *RideRepo) CreateRideTx(ctx context.Context, r *domain.RideRequest, res *domain.RideResponse) error {
 	// Начинаем транзакцию
-	tx, err := p.Begin(ctx)
+	tx, err := p.db.Begin(ctx)
 	if err != nil {
 		return err
 	}
@@ -122,9 +119,9 @@ func (p *ride) CreateRideTx(ctx context.Context, r *domain.RideRequest, res *dom
 	return tx.Commit(ctx)
 }
 
-func (p *ride) CancelRide(ctx context.Context, rideID string, stu *domain.CancelRideRequest) error {
+func (p *RideRepo) CancelRide(ctx context.Context, rideID string, stu *domain.CancelRideRequest) error {
 	// Начинаем транзакцию
-	tx, err := p.Begin(ctx)
+	tx, err := p.db.Begin(ctx)
 	if err != nil {
 		return err
 	}
@@ -162,8 +159,8 @@ func (p *ride) CancelRide(ctx context.Context, rideID string, stu *domain.Cancel
 	return tx.Commit(ctx)
 }
 
-func (p *ride) RideMatchedUpdate(ctx context.Context, data *domain.DriverLocationUpdate) error {
-	tx, err := p.Begin(ctx)
+func (p *RideRepo) RideMatchedUpdate(ctx context.Context, data *domain.RideStatusUpdate) error {
+	tx, err := p.db.Begin(ctx)
 	if err != nil {
 		return err
 	}
@@ -200,10 +197,10 @@ func (p *ride) RideMatchedUpdate(ctx context.Context, data *domain.DriverLocatio
 		"old_status": oldStatus,
 		"new_status": "MATCHED",
 		"driver_id":  data.DriverID,
-		"location": map[string]float64{
-			"lat": data.Location.Lat,
-			"lng": data.Location.Lng,
-		},
+		// "location": map[string]float64{
+		// 	"lat": data.Location.Lat,
+		// 	"lng": data.Location.Lng,
+		// },
 		// "estimated_arrival": data.EstimatedArrival, // time.Time или строка в ISO8601
 	}
 
@@ -218,8 +215,8 @@ func (p *ride) RideMatchedUpdate(ctx context.Context, data *domain.DriverLocatio
 	return tx.Commit(ctx)
 }
 
-func (p *ride) RideEnRouteUpdate(ctx context.Context, data *domain.DriverLocationUpdate) error {
-	tx, err := p.Begin(ctx)
+func (p *RideRepo) RideEnRouteUpdate(ctx context.Context, data *domain.RideStatusUpdate) error {
+	tx, err := p.db.Begin(ctx)
 	if err != nil {
 		return err
 	}
@@ -267,8 +264,8 @@ func (p *ride) RideEnRouteUpdate(ctx context.Context, data *domain.DriverLocatio
 	return tx.Commit(ctx)
 }
 
-func (p *ride) RideArrivedUpdate(ctx context.Context, data *domain.DriverLocationUpdate) error {
-	tx, err := p.Begin(ctx)
+func (p *RideRepo) RideArrivedUpdate(ctx context.Context, data *domain.RideStatusUpdate) error {
+	tx, err := p.db.Begin(ctx)
 	if err != nil {
 		return err
 	}
@@ -329,8 +326,8 @@ func (p *ride) RideArrivedUpdate(ctx context.Context, data *domain.DriverLocatio
 	return tx.Commit(ctx)
 }
 
-func (p *ride) RideInProgressUpdate(ctx context.Context, data *domain.DriverLocationUpdate) error {
-	tx, err := p.Begin(ctx)
+func (p *RideRepo) RideInProgressUpdate(ctx context.Context, data *domain.RideStatusUpdate) error {
+	tx, err := p.db.Begin(ctx)
 	if err != nil {
 		return err
 	}
@@ -392,8 +389,8 @@ func (p *ride) RideInProgressUpdate(ctx context.Context, data *domain.DriverLoca
 
 }
 
-func (p *ride) RideCompleteUpdate(ctx context.Context, data *domain.RideStatusUpdate) error {
-	tx, err := p.Begin(ctx)
+func (p *RideRepo) RideCompleteUpdate(ctx context.Context, data *domain.RideStatusUpdate) error {
+	tx, err := p.db.Begin(ctx)
 	if err != nil {
 		return err
 	}
@@ -465,8 +462,8 @@ func (p *ride) RideCompleteUpdate(ctx context.Context, data *domain.RideStatusUp
 	return tx.Commit(ctx)
 }
 
-func (p *ride) RideLocationUpdate(ctx context.Context, data *domain.LocationCoordinateUpdate) error {
-	tx, err := p.Begin(ctx)
+func (p *RideRepo) RideLocationUpdate(ctx context.Context, data *domain.LocationCoordinateUpdate) error {
+	tx, err := p.db.Begin(ctx)
 	if err != nil {
 		return err
 	}

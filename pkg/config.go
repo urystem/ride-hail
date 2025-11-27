@@ -35,6 +35,7 @@ type WebSocketCfg struct {
 }
 
 type ServicesCfg struct {
+	Secret                string
 	RideService           uint16 `yaml:"ride_service"`
 	DriverLocationService uint16 `yaml:"driver_location_service"`
 	AdminService          uint16 `yaml:"admin_service"`
@@ -60,5 +61,6 @@ func ParseConfig() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	cfg.ServicesCfg.Secret = os.Getenv("MY_SECRET")
 	return cfg, nil
 }
