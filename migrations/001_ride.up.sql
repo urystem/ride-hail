@@ -28,7 +28,7 @@ create table users (
     updated_at timestamptz not null default now(),
     email varchar(100) unique not null,
     role text references "roles"(value) not null,
-    status text references "user_status"(value) not null default 'ACTIVE',
+    status text references "user_status"(value) not null default 'INACTIVE',
     password_hash text not null,
     attrs jsonb default '{}'::jsonb
 );

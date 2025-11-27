@@ -1,6 +1,7 @@
 package pkg
 
 import (
+	"fmt"
 	"os"
 
 	"github.com/drone/envsubst"
@@ -62,5 +63,6 @@ func ParseConfig() (*Config, error) {
 		return nil, err
 	}
 	cfg.ServicesCfg.Secret = os.Getenv("MY_SECRET")
+	fmt.Println(cfg.ServicesCfg.Secret)
 	return cfg, nil
 }

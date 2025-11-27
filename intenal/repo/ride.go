@@ -31,14 +31,20 @@ func (p *RideRepo) RegisterPassenger(ctx context.Context, user *domain.User) (st
 	return id, err
 }
 
-func (p *RideRepo) GetPassword(ctx context.Context, email string) (string, error) {
-	var passwordHash string
+func (p *RideRepo) GetUserByEmail(ctx context.Context, email string) (*domain.User, error) {
+	user := new(domain.User)
 	err := p.db.QueryRow(ctx, `
-		SELECT password_hash
+		SELECT id, name, password_hash, role, status
 		FROM users
 		WHERE email = $1
-	`, email).Scan(&passwordHash)
-	return passwordHash, err
+	`, email).Scan(&user.ID, &user.Name, &user.PasswordHash, &user.Role, &user.Status)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrNotFound
+		}
+		return nil, err
+	}
+	return user, nil
 }
 
 func (p *RideRepo) CreateRideTx(ctx context.Context, r *domain.RideRequest, res *domain.RideResponse) error {
@@ -50,7 +56,24 @@ func (p *RideRepo) CreateRideTx(ctx context.Context, r *domain.RideRequest, res 
 	defer tx.Rollback(ctx)
 
 	var pickupID, destID, rideID string
-
+	// var passengerStatus string
+	// 	err = tx.QueryRow(ctx, `
+	//     UPDATE users
+	// 		SET status = 'ACTIVE',
+	//     	updated_at = NOW()
+	// 	WHERE id = $1
+	//   	AND status = 'INACTIVE'
+	// 	RETURNING status;
+	// `, r.PassengerID).Scan(&passengerStatus)
+	// 	if err != nil {
+	// 		if errors.Is(err, pgx.ErrNoRows) {
+	// 			return domain.ErrNotFound // или своя ошибка
+	// 		}
+	// 		return err
+	// 	}
+	// if passengerStatus != "ACTIVE" {
+	// 	return fmt.Errorf("invalid status: %s", passengerStatus)
+	// }
 	// Вставляем pickup координату
 	err = tx.QueryRow(ctx, `
         INSERT INTO coordinates (
@@ -63,8 +86,8 @@ func (p *RideRepo) CreateRideTx(ctx context.Context, r *domain.RideRequest, res 
         distance_km,
         duration_minutes)
         VALUES ($1, 'passenger', $2, $3, $4, $5, $6, $7)
-        RETURNING id
-    `, r.PassengerID,
+        RETURNING id`,
+		r.PassengerID,
 		r.PickupAddress,
 		r.PickupLatitude,
 		r.PickupLongitude,
@@ -72,6 +95,7 @@ func (p *RideRepo) CreateRideTx(ctx context.Context, r *domain.RideRequest, res 
 		res.EstimatedDistanceKM,
 		res.EstimatedDurationMinutes,
 	).Scan(&pickupID)
+
 	if err != nil {
 		return err
 	}
@@ -562,6 +586,22 @@ func (p *RideRepo) RideLocationUpdate(ctx context.Context, data *domain.Location
 		return err
 	}
 	return tx.Commit(ctx)
+}
+
+func (p *RideRepo) GetPassengerWS(ctx context.Context, id string) (*domain.User, error) {
+	user := new(domain.User)
+	err := p.db.QueryRow(ctx, `
+		SELECT name, role, status, email
+		FROM users
+		WHERE id = $1
+	`, id).Scan(&user.Name, &user.Role, &user.Status, &user.Email)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrNotFound
+		}
+		return nil, err
+	}
+	return user, nil
 }
 
 //get passenger info for driver

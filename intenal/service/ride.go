@@ -8,6 +8,7 @@ import (
 	"taxi-hailing/intenal/broker"
 	"taxi-hailing/intenal/domain"
 	"taxi-hailing/intenal/repo"
+	"time"
 )
 
 const (
@@ -35,6 +36,10 @@ func NewRideService(ctx context.Context, slogger *slog.Logger, db *repo.RideRepo
 func (s *RideService) RegisterPassenger(ctx context.Context, user *domain.User) (string, error) {
 	defer s.slogger.Info("new passenger registred", "action", "registration passenger")
 	return s.db.RegisterPassenger(ctx, user)
+}
+
+func (s *RideService) GetUserByEmail(ctx context.Context, email string) (*domain.User, error) {
+	return s.db.GetUserByEmail(ctx, email)
 }
 
 func (s *RideService) CreateRide(ctx context.Context, ride *domain.RideRequest) (*domain.RideResponse, error) {
@@ -135,4 +140,15 @@ func giveTypesFare(str string) (float64, float64, float64, uint8) {
 	default: /*case "ECONOMY":*/
 		return 500, 100, 50, 1
 	}
+}
+
+func (s *RideService) CancelRide(ctx context.Context, rideID string, req *domain.CancelRideRequest) (*domain.CancelRideResponse, error) {
+	err := s.db.CancelRide(ctx, rideID, req)
+	res := &domain.CancelRideResponse{
+		RideID:      rideID,
+		Status:      "Cancelled",
+		CancelledAt: time.Now(),
+		Message:     "Ride cancelled successfully",
+	}
+	
 }
