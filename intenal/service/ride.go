@@ -8,7 +8,7 @@ import (
 	"taxi-hailing/intenal/broker"
 	"taxi-hailing/intenal/domain"
 	"taxi-hailing/intenal/repo"
-	"time"
+	"taxi-hailing/intenal/ws"
 )
 
 const (
@@ -21,13 +21,15 @@ type RideService struct {
 	slogger *slog.Logger
 	db      *repo.RideRepo
 	rabbit  *broker.RideBroker
+	ws      *ws.PassengerHub
 }
 
-func NewRideService(ctx context.Context, slogger *slog.Logger, db *repo.RideRepo, rabbit *broker.RideBroker) *RideService {
+func NewRideService(ctx context.Context, slogger *slog.Logger, db *repo.RideRepo, rabbit *broker.RideBroker, ws *ws.PassengerHub) *RideService {
 	service := &RideService{
 		slogger: slogger,
 		db:      db,
 		rabbit:  rabbit,
+		ws:      ws,
 	}
 	go service.statusUpdater(ctx)
 	return service
@@ -142,13 +144,14 @@ func giveTypesFare(str string) (float64, float64, float64, uint8) {
 	}
 }
 
-func (s *RideService) CancelRide(ctx context.Context, rideID string, req *domain.CancelRideRequest) (*domain.CancelRideResponse, error) {
-	err := s.db.CancelRide(ctx, rideID, req)
-	res := &domain.CancelRideResponse{
-		RideID:      rideID,
-		Status:      "Cancelled",
-		CancelledAt: time.Now(),
-		Message:     "Ride cancelled successfully",
-	}
-	
-}
+// func (s *RideService) CancelRide(ctx context.Context, rideID string, req *domain.CancelRideRequest) (*domain.CancelRideResponse, error) {
+// 	err := s.db.CancelRide(ctx, rideID, req)
+// 	res := &domain.CancelRideResponse{
+// 		RideID:      rideID,
+// 		Status:      "Cancelled",
+// 		CancelledAt: time.Now(),
+// 		Message:     "Ride cancelled successfully",
+// 	}
+
+// }
+

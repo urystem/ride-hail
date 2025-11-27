@@ -10,6 +10,7 @@ import (
 	"taxi-hailing/intenal/repo"
 	"taxi-hailing/intenal/server"
 	"taxi-hailing/intenal/service"
+	"taxi-hailing/intenal/ws"
 	"taxi-hailing/pkg"
 )
 
@@ -34,8 +35,8 @@ func main() {
 		os.Exit(1)
 	}
 	defer rabbit.CloseRabbit()
-
-	myService := service.NewRideService(context.Background(), slogger, db, rabbit)
+	ws := ws.NewWebSocket(slogger, cfg.WebSocketCfg.Port, db)
+	myService := service.NewRideService(context.Background(), slogger, db, rabbit, ws)
 	myServer := server.NewRideServer(cfg.RideService, cfg.ServicesCfg.Secret, myService)
 
 	quit := make(chan os.Signal, 1)
