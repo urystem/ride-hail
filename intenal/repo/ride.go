@@ -56,24 +56,31 @@ func (p *RideRepo) CreateRideTx(ctx context.Context, r *domain.RideRequest, res 
 	defer tx.Rollback(ctx)
 
 	var pickupID, destID, rideID string
-	// var passengerStatus string
-	// 	err = tx.QueryRow(ctx, `
-	//     UPDATE users
-	// 		SET status = 'ACTIVE',
-	//     	updated_at = NOW()
-	// 	WHERE id = $1
-	//   	AND status = 'INACTIVE'
-	// 	RETURNING status;
-	// `, r.PassengerID).Scan(&passengerStatus)
-	// 	if err != nil {
-	// 		if errors.Is(err, pgx.ErrNoRows) {
-	// 			return domain.ErrNotFound // или своя ошибка
-	// 		}
-	// 		return err
-	// 	}
-	// if passengerStatus != "ACTIVE" {
-	// 	return fmt.Errorf("invalid status: %s", passengerStatus)
-	// }
+	var passengerStatus string
+
+	err = p.db.QueryRow(ctx, `SELECT status FROM users WHERE id = $1`, r.PassengerID).Scan(&passengerStatus)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.ErrNotFound
+		}
+		return err
+	}
+	if passengerStatus == "ACTIVE" {
+		return fmt.Errorf("passenger is active already")
+	}
+
+	_, err = tx.Exec(ctx, `
+	    UPDATE users
+			SET status = 'ACTIVE',
+	    	updated_at = NOW()
+		WHERE id = $1;
+	`, r.PassengerID)
+	if err != nil {
+		return err
+	}
+	if passengerStatus != "ACTIVE" {
+		return fmt.Errorf("invalid status: %s", passengerStatus)
+	}
 	// Вставляем pickup координату
 	err = tx.QueryRow(ctx, `
         INSERT INTO coordinates (
@@ -85,15 +92,16 @@ func (p *RideRepo) CreateRideTx(ctx context.Context, r *domain.RideRequest, res 
         fare_amount,
         distance_km,
         duration_minutes)
-        VALUES ($1, 'passenger', $2, $3, $4, $5, $6, $7)
+        VALUES ($1, 'passenger', $2, $3, $4, $5, 0, 0)
         RETURNING id`,
 		r.PassengerID,
 		r.PickupAddress,
 		r.PickupLatitude,
 		r.PickupLongitude,
-		res.EstimatedFare,
-		res.EstimatedDistanceKM,
-		res.EstimatedDurationMinutes,
+		res.BaseFare,
+		// res.EstimatedFare,
+		// res.EstimatedDistanceKM,
+		// res.EstimatedDurationMinutes,
 	).Scan(&pickupID)
 
 	if err != nil {
@@ -150,21 +158,33 @@ func (p *RideRepo) CancelRide(ctx context.Context, rideID string, stu *domain.Ca
 		return err
 	}
 	defer tx.Rollback(ctx)
-
 	var oldStatus string
 	err = tx.QueryRow(ctx, `
+        SELECT status, passenger_id
+        FROM rides
+        WHERE id = $1`, rideID).Scan(&oldStatus)
+
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.ErrNotFound // или своя ошибка
+		}
+		return err
+	}
+	switch oldStatus {
+	case "CANCELLED":
+		return fmt.Errorf("already cancelled")
+	case "COMPLETED":
+		return fmt.Errorf("already completed")
+	}
+
+	_, err = tx.Exec(ctx, `
         UPDATE rides
         SET status = 'CANCELLED',
             cancelled_at = now(),
             cancellation_reason = $2,
             updated_at = now()
-        WHERE id = $1
-        RETURNING OLD.status
-    `, rideID, stu.Reason).Scan(&oldStatus)
+        WHERE id = $1`, rideID, stu.Reason)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return domain.ErrNotFound // или своя ошибка
-		}
 		return err
 	}
 	// Формируем event_data
@@ -183,7 +203,7 @@ func (p *RideRepo) CancelRide(ctx context.Context, rideID string, stu *domain.Ca
 	return tx.Commit(ctx)
 }
 
-func (p *RideRepo) RideMatchedUpdate(ctx context.Context, data *domain.RideStatusUpdate) error {
+func (p *RideRepo) RideMatchedUpdate(ctx context.Context, data *domain.RideResponseMatch) error {
 	tx, err := p.db.Begin(ctx)
 	if err != nil {
 		return err
@@ -492,11 +512,11 @@ func (p *RideRepo) RideLocationUpdate(ctx context.Context, data *domain.Location
 		return err
 	}
 	defer tx.Rollback(ctx)
-	var oldStatus, drID, coorID, passengerID string
+	var statusRide, drID, passengerID string
 	err = tx.QueryRow(ctx, `
-        SELECT status, driver_id::text, pickup_coordinate_id, passenger_id
+        SELECT status, driver_id::text, passenger_id
         FROM rides
-        WHERE id = $1`, data.RideID).Scan(&oldStatus, &drID, &coorID, &passengerID)
+        WHERE id = $1`, data.RideID).Scan(&statusRide, &drID, &passengerID)
 
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -504,16 +524,26 @@ func (p *RideRepo) RideLocationUpdate(ctx context.Context, data *domain.Location
 		}
 		return err
 	}
-	if oldStatus != "IN_PROGRESS" {
-		return fmt.Errorf("invalid status : %s", oldStatus)
+	if statusRide != "IN_PROGRESS" /*&& oldStatus != "EN_ROUTE"*/ {
+		return fmt.Errorf("invalid status : %s", statusRide)
 	}
 
 	if drID != data.DriverID {
 		return fmt.Errorf("invalid driver id: %s != %s", drID, data.DriverID)
 	}
 
-	var pickupID string
-	err = tx.QueryRow(ctx, `
+	_, err = tx.Exec(ctx, `
+	    UPDATE coordinates
+	    SET is_current = false,
+	        updated_at = NOW()
+	    WHERE entity_id = $1
+	      AND is_current = true
+	`, passengerID)
+	if err != nil {
+		return err
+	}
+
+	_, err = tx.Exec(ctx, `
         INSERT INTO coordinates (
         entity_id,
         entity_type,
@@ -524,7 +554,6 @@ func (p *RideRepo) RideLocationUpdate(ctx context.Context, data *domain.Location
         distance_km,
         duration_minutes)
         VALUES ($1, 'passenger', $2, $3, $4, $5, $6, $7)
-        RETURNING id
     `, passengerID,
 		data.Location,
 		data.Location.Lat,
@@ -532,18 +561,7 @@ func (p *RideRepo) RideLocationUpdate(ctx context.Context, data *domain.Location
 		data.FareAmount,
 		data.Distance,
 		data.DurationMinute,
-	).Scan(&pickupID)
-	if err != nil {
-		return err
-	}
-
-	_, err = tx.Exec(ctx, `
-        UPDATE coordinates
-        SET 
-            is_current = false,
-            updated_at = NOW()
-        WHERE id = $1
-    `, data.OldCoorID)
+	)
 	if err != nil {
 		return err
 	}
@@ -602,6 +620,67 @@ func (p *RideRepo) GetPassengerWS(ctx context.Context, id string) (*domain.User,
 		return nil, err
 	}
 	return user, nil
+}
+
+func (p *RideRepo) GetPassengerIDByRideID(ctx context.Context, id string) (string, error) {
+	var passengerID string
+	const query = `SELECT passenger_id FROM rides WHERE id = $1`
+	err := p.db.QueryRow(ctx, query, id).Scan(&passengerID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", domain.ErrNotFound
+		}
+		return "", err
+	}
+
+	return passengerID, nil
+}
+
+func (p *RideRepo) GetRideNumberByRideID(ctx context.Context, id string) (string, error) {
+	var rideNumber string
+
+	err := p.db.QueryRow(ctx,
+		`SELECT ride_number FROM rides WHERE id = $1`,
+		id,
+	).Scan(&rideNumber)
+
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", fmt.Errorf("ride not found")
+		}
+		return "", err
+	}
+
+	return rideNumber, nil
+}
+
+func (p *RideRepo) GetRideVehicleType(ctx context.Context, rideID string) (string, error) {
+	var vehicleType string
+	const query = `SELECT vehicle_type FROM rides WHERE id = $1`
+	err := p.db.QueryRow(ctx, query, rideID).Scan(&vehicleType)
+	if err != nil {
+		return "", err
+	}
+	return vehicleType, nil
+}
+
+func (p *RideRepo) GetCurrentCoordinate(ctx context.Context, passengerID string) (*domain.CoordinateUpdate, error) {
+	coord := new(domain.CoordinateUpdate)
+	query := `
+		SELECT updated_at, latitude, longitude, fare_amount, distance_km, duration_minutes
+		FROM coordinates
+		WHERE entity_id = $1 AND is_current = true`
+	err := p.db.QueryRow(ctx, query, passengerID).Scan(
+		&coord.UpdatedAt,
+		&coord.Latitude,
+		&coord.Longitude,
+		&coord.FareAmount,
+		&coord.DistanceKm,
+		&coord.DurationMinutes)
+	if err != nil {
+		return nil, err
+	}
+	return coord, nil
 }
 
 //get passenger info for driver

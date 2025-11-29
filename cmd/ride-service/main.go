@@ -36,11 +36,21 @@ func main() {
 	}
 	defer rabbit.CloseRabbit()
 	ws := ws.NewWebSocket(slogger, cfg.WebSocketCfg.Port, db)
+
 	myService := service.NewRideService(context.Background(), slogger, db, rabbit, ws)
 	myServer := server.NewRideServer(cfg.RideService, cfg.ServicesCfg.Secret, myService)
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	//websocket
+	go func() {
+
+		slogger.Info("starting the server", "action", "start the server")
+		err := ws.StartServer()
+		slog.Error("server stopped", "error", err)
+		quit <- nil
+	}()
+
 	go func() {
 		slogger.Info("starting the server", "action", "start the server")
 		err := myServer.StartServer()
@@ -50,3 +60,4 @@ func main() {
 	<-quit
 	myServer.ShutDownServer(context.Background())
 }
+

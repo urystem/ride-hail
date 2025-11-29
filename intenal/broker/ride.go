@@ -15,19 +15,22 @@ import (
 )
 
 type RideBroker struct {
-	logger    *slog.Logger
-	conn      *amqp091.Connection
-	connClose chan *amqp091.Error
-	status    chan *statusStu
-	ch        *amqp091.Channel
-	isClosed  atomic.Bool
+	logger         *slog.Logger
+	conn           *amqp091.Connection
+	connClose      chan *amqp091.Error
+	status         chan *statusStu
+	locationUpdate chan *locationStu
+	drRespone      chan *matchResponse
+	ch             *amqp091.Channel
+	isClosed       atomic.Bool
 }
 
 func NewRideRabbit(cfg pkg.RabbitMQCfg, slogger *slog.Logger) (*RideBroker, error) {
 	dsn := fmt.Sprintf("amqp://%s:%s@%s:%d/", cfg.User, cfg.Password, cfg.Host, cfg.Port)
 	myRab := &RideBroker{
-		logger: slogger,
-		status: make(chan *statusStu),
+		logger:         slogger,
+		status:         make(chan *statusStu),
+		locationUpdate: make(chan *locationStu),
 	}
 
 	err := myRab.createChannel(dsn)
@@ -131,17 +134,113 @@ func (r *RideBroker) createChannel(dsn string) error {
 	}
 	go func() {
 		for msg := range msgs {
-			r.status <- newStatus(msg)
+			r.status <- r.newStatus(&msg)
+		}
+	}()
+
+	//location update
+	err = ch.ExchangeDeclare(
+		"location_fanout", // имя exchange
+		"fanout",          // тип (direct, fanout, topic, headers)
+		true,              // durable
+		false,             // auto-deleted
+		false,             // internal
+		false,             // no-wait
+		nil,               // args
+	)
+	if err != nil {
+		return errors.Join(r.conn.Close(), err)
+	}
+
+	q3, err := ch.QueueDeclare(
+		"",    // name
+		false, // durable
+		false, // delete when unused
+		true,  // exclusive
+		false, // no-wait
+		nil,   // arguments
+	)
+	if err != nil {
+		return errors.Join(r.conn.Close(), err)
+	}
+
+	err = ch.QueueBind(
+		q3.Name,                // queue name
+		"",                     // routing key
+		"notifications_fanout", // exchange
+		false,
+		nil,
+	)
+	if err != nil {
+		return errors.Join(r.conn.Close(), err)
+	}
+
+	msgs2, err := ch.Consume(
+		q3.Name, // queue
+		"",      // consumer
+		true,    // auto-ack
+		false,   // exclusive
+		false,   // no-local
+		false,   // no-wait
+		nil,     // args
+	)
+	if err != nil {
+		return errors.Join(r.conn.Close(), err)
+	}
+
+	go func() {
+		for msg := range msgs2 {
+			r.locationUpdate <- r.newLocation(&msg)
+		}
+	}()
+
+	err = ch.ExchangeDeclare(
+		"driver_topic", // имя exchange
+		"topic",        // тип (direct, fanout, topic, headers)
+		true,           // durable
+		false,          // auto-deleted
+		false,          // internal
+		false,          // no-wait
+		nil,            // args
+	)
+	if err != nil {
+		return errors.Join(r.conn.Close(), err)
+	}
+
+	q4, err := ch.QueueDeclare("driver_responses", true, false, false, false, nil)
+	if err != nil {
+		return errors.Join(r.conn.Close(), err)
+	}
+	err = ch.QueueBind(q4.Name, "driver.response.*", "driver_topic", false, nil)
+	if err != nil {
+		return errors.Join(r.conn.Close(), err)
+	}
+
+	msgs3, err := ch.Consume(
+		q4.Name,
+		"",
+		false,
+		false,
+		false,
+		false,
+		nil,
+	)
+	if err != nil {
+		return errors.Join(r.conn.Close(), err)
+	}
+	go func() {
+		for mgs := range msgs3 {
+			r.drRespone <- r.newDriverRespone(&mgs)
 		}
 	}()
 	return nil
 }
 
 type statusStu struct {
-	amqp091.Delivery
+	delivery *amqp091.Delivery
 }
 
-func newStatus(hat amqp091.Delivery) *statusStu {
+func (s *RideBroker) newStatus(hat *amqp091.Delivery) *statusStu {
 	return &statusStu{
 		hat,
 	}
@@ -149,7 +248,7 @@ func newStatus(hat amqp091.Delivery) *statusStu {
 
 func (s *statusStu) GiveBody() (*domain.RideStatusUpdate, error) {
 	status := new(domain.RideStatusUpdate)
-	err := json.Unmarshal(s.Body, status)
+	err := json.Unmarshal(s.delivery.Body, status)
 	if err != nil {
 		return nil, err
 	}
@@ -173,4 +272,50 @@ func (s *RideBroker) PublishRide(ctx context.Context, priority uint8, req *domai
 			Priority:    priority,
 		},
 	)
+}
+
+type locationStu struct {
+	location *amqp091.Delivery
+}
+
+func (s *RideBroker) newLocation(hat *amqp091.Delivery) *locationStu {
+	return &locationStu{
+		location: hat,
+	}
+}
+
+func (l *locationStu) GiveBody() (*domain.DriverLocationUpdate, error) {
+	loc := new(domain.DriverLocationUpdate)
+	err := json.Unmarshal(l.location.Body, loc)
+	if err != nil {
+		return nil, err
+	}
+	return loc, nil
+}
+
+func (s *RideBroker) GiveLocationChannel() <-chan *locationStu {
+	return s.locationUpdate
+}
+
+type matchResponse struct {
+	delivery *amqp091.Delivery
+}
+
+func (s *RideBroker) newDriverRespone(hat *amqp091.Delivery) *matchResponse {
+	return &matchResponse{
+		delivery: hat,
+	}
+}
+
+func (dr *matchResponse) GiveBody() (*domain.RideResponseMatch, error) {
+	res := new(domain.RideResponseMatch)
+	err := json.Unmarshal(dr.delivery.Body, res)
+	if err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+func (s *RideBroker) GiveResponeChannel() <-chan *matchResponse {
+	return s.drRespone
 }

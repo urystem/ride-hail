@@ -62,7 +62,7 @@ create table coordinates (
     id uuid primary key default gen_random_uuid(),
     created_at timestamptz not null default now(),
     updated_at timestamptz not null default now(),
-    entity_id uuid not null, -- driver_id or passenger_id
+    entity_id uuid not null, -- driver_id or passenger_id, but only for passenger
     entity_type varchar(20) not null check (entity_type in ('driver', 'passenger')),
     address text not null,
     latitude decimal(10,8) not null check (latitude between -90 and 90),
