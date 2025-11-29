@@ -165,9 +165,9 @@ func (r *RideBroker) createChannel(dsn string) error {
 	}
 
 	err = ch.QueueBind(
-		q3.Name,                // queue name
-		"",                     // routing key
-		"notifications_fanout", // exchange
+		q3.Name,               // queue name
+		"",                    // routing key
+		"location_fanout", // exchange
 		false,
 		nil,
 	)

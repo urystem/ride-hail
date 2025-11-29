@@ -51,6 +51,7 @@ func (s *RideService) CreateRide(ctx context.Context, ride *domain.RideRequest) 
 	base_fare, rate_per_km, rate_per_min, priority := giveTypesFare(ride.RideType)
 	fare := base_fare + (distance_km * rate_per_km) + (duration_min * rate_per_min)
 
+	ride.Priority = uint(priority)
 	res := &domain.RideResponse{
 		EstimatedDistanceKM:      distance_km,
 		EstimatedDurationMinutes: int(duration_min),

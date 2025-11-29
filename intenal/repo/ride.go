@@ -25,9 +25,9 @@ func (p *RideRepo) RegisterPassenger(ctx context.Context, user *domain.User) (st
 	var id string
 	err := p.db.QueryRow(ctx, `
 			INSERT INTO users (name, email, role, password_hash)
-			VALUES ($1, $2, 'PASSENGER', $3)
+			VALUES ($1, $2, $3, $4)
 			RETURNING id`,
-		user.Name, user.Email, user.PasswordHash).Scan(&id)
+		user.Name, user.Email, user.Role, user.PasswordHash).Scan(&id)
 	return id, err
 }
 
@@ -78,7 +78,7 @@ func (p *RideRepo) CreateRideTx(ctx context.Context, r *domain.RideRequest, res 
 	if err != nil {
 		return err
 	}
-	if passengerStatus != "ACTIVE" {
+	if passengerStatus == "ACTIVE" || passengerStatus == "BANNED" {
 		return fmt.Errorf("invalid status: %s", passengerStatus)
 	}
 	// Вставляем pickup координату
@@ -133,7 +133,7 @@ func (p *RideRepo) CreateRideTx(ctx context.Context, r *domain.RideRequest, res 
 	rideNumber := fmt.Sprintf("RIDE_%s_%03d", time.Now().Format("20060102"), count+1) // упрощённо
 	err = tx.QueryRow(ctx, `
         INSERT INTO rides (ride_number, passenger_id, vehicle_type, status, priority, pickup_coordinate_id, destination_coordinate_id, estimated_fare)
-        VALUES ($1, $2, $3, 'REQUESTED',$4, $5, $6)
+        VALUES ($1, $2, $3, 'REQUESTED',$4, $5, $6, $7)
         RETURNING id
     `, rideNumber, r.PassengerID, r.RideType, r.Priority, pickupID, destID, res.EstimatedFare).Scan(&rideID)
 	if err != nil {
@@ -477,6 +477,15 @@ func (p *RideRepo) RideCompleteUpdate(ctx context.Context, data *domain.RideStat
 	if err != nil {
 		return err
 	}
+	_, err = tx.Exec(ctx, `
+	    UPDATE users
+			SET status = 'INACTIVE',
+	    	updated_at = NOW()
+		WHERE id = $1;
+	`, passengerID)
+	if err != nil {
+		return err
+	}
 
 	_, err = tx.Exec(ctx, `
         UPDATE rides
@@ -666,7 +675,7 @@ func (p *RideRepo) GetRideVehicleType(ctx context.Context, rideID string) (strin
 
 func (p *RideRepo) GetCurrentCoordinate(ctx context.Context, passengerID string) (*domain.CoordinateUpdate, error) {
 	coord := new(domain.CoordinateUpdate)
-	query := `
+	const query = `
 		SELECT updated_at, latitude, longitude, fare_amount, distance_km, duration_minutes
 		FROM coordinates
 		WHERE entity_id = $1 AND is_current = true`

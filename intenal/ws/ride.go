@@ -6,9 +6,11 @@ import (
 	"log/slog"
 	"net/http"
 	"sync"
+	"taxi-hailing/intenal/domain"
 	"taxi-hailing/intenal/repo"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/gorilla/websocket"
 )
 
@@ -25,6 +27,7 @@ type myWebSocket struct {
 }
 
 type PassengerHub struct {
+	secret  []byte
 	srv     *http.Server
 	slogger *slog.Logger
 	clients sync.Map // map[string]*MyWebSocket map[string] chan<- []byte
@@ -44,6 +47,26 @@ func (hub *PassengerHub) GiveToPassenger(id string, zat any) {
 	ws.pushToChannel(zat)
 }
 
+type authMessage struct {
+	Type  string `json:"type"`
+	Token string `json:"token"`
+}
+
+func (h *PassengerHub) parseTokenMyClaims(tokenStr string) (*domain.MyClaims, error) {
+	token, err := jwt.ParseWithClaims(tokenStr, &domain.MyClaims{}, func(t *jwt.Token) (any, error) {
+		return h.secret, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	claims, ok := token.Claims.(*domain.MyClaims)
+	if !ok {
+		return nil, fmt.Errorf("invalid struture")
+	}
+	return claims, nil
+}
+
 func (hub *PassengerHub) connectPassenger(w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -52,12 +75,52 @@ func (hub *PassengerHub) connectPassenger(w http.ResponseWriter, r *http.Request
 	}
 	defer conn.Close()
 	id := r.PathValue("passenger_id")
+
+	err = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	if err != nil {
+		return
+	}
+	auth := new(authMessage)
+	err = conn.ReadJSON(auth)
+	if err != nil {
+		hub.slogger.Error("websocket_auth_timeout", "error", err)
+		conn.WriteJSON(map[string]string{"error": err.Error()})
+		return
+	}
+
+	if auth.Type != "auth" {
+		conn.WriteJSON(map[string]string{"error": fmt.Sprintf("invalid auth type: %s", auth.Type)})
+		return
+	}
+
+	claim, err := hub.parseTokenMyClaims(auth.Token)
+	if err != nil {
+		conn.WriteJSON(map[string]string{"error": err.Error()})
+		return
+	}
+	if claim.PassengerID != id {
+		conn.WriteJSON(map[string]string{"error": fmt.Sprintln("wrong id != cliam id")})
+		return
+	}
+	if claim.Role != "PASSENGER" {
+		conn.WriteJSON(map[string]string{"error": fmt.Sprintln("wrong role != role")})
+	}
+
 	user, err := hub.db.GetPassengerWS(r.Context(), id)
 	if err != nil {
 		conn.WriteJSON(map[string]string{"error": err.Error()})
 		return
 	}
-	_ = user
+	if user.Role != "PASSENGER" {
+		conn.WriteJSON(map[string]string{"error": "your role is not passenger"})
+		return
+	}
+	if user.Status != "ACTIVE" {
+		conn.WriteJSON(map[string]string{"error": "your status is not active"})
+		return
+	}
+
+	conn.WriteJSON(map[string]string{"msg": "please wait"})
 	_, ok := hub.clients.Load(id)
 	if ok {
 		conn.WriteJSON(map[string]string{"error": "already connected in other ws"})
@@ -132,9 +195,10 @@ func (hub *PassengerHub) writer(conn *websocket.Conn, ws *myWebSocket) {
 	}
 }
 
-func NewWebSocket(slogger *slog.Logger, port uint16, db *repo.RideRepo) *PassengerHub {
+func NewWebSocket(slogger *slog.Logger, secret []byte, port uint16, db *repo.RideRepo) *PassengerHub {
 	mux := http.NewServeMux()
 	my := &PassengerHub{
+		secret:  secret,
 		slogger: slogger,
 		db:      db,
 	}

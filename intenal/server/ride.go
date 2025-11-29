@@ -51,32 +51,24 @@ type rideHandler struct {
 }
 
 type registrationResponse struct {
-	id    string `json:"id"`
+	ID    string `json:"id"`
 	Token string `json:"token"`
 }
 
-type myClaims struct {
-	PassengerID string
-	Name        string
-	Email       string
-	Role        string
-	jwt.RegisteredClaims
-}
-
-func (h *rideHandler) generateTokenMyClaims(claims *myClaims) (string, error) {
+func (h *rideHandler) generateTokenMyClaims(claims *domain.MyClaims) (string, error) {
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	return token.SignedString([]byte(h.secret))
 }
 
-func (h *rideHandler) parseTokenMyClaims(tokenStr string) (*myClaims, error) {
-	token, err := jwt.ParseWithClaims(tokenStr, &myClaims{}, func(t *jwt.Token) (any, error) {
+func (h *rideHandler) parseTokenMyClaims(tokenStr string) (*domain.MyClaims, error) {
+	token, err := jwt.ParseWithClaims(tokenStr, &domain.MyClaims{}, func(t *jwt.Token) (any, error) {
 		return h.secret, nil
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	claims, ok := token.Claims.(*myClaims)
+	claims, ok := token.Claims.(*domain.MyClaims)
 	if !ok {
 		return nil, fmt.Errorf("invalid struture")
 	}
@@ -108,7 +100,7 @@ func (h *rideHandler) registerPassenger(w http.ResponseWriter, r *http.Request) 
 		errorWrite(w, http.StatusBadRequest, err)
 		return
 	}
-	err = validateUserInput(user)
+	err = validateUserInput(user, true)
 	if err != nil {
 		errorWrite(w, http.StatusBadRequest, err)
 		return
@@ -118,23 +110,23 @@ func (h *rideHandler) registerPassenger(w http.ResponseWriter, r *http.Request) 
 		errorWrite(w, http.StatusInternalServerError, err)
 		return
 	}
-
 	id, err := h.use.RegisterPassenger(r.Context(), user)
 	if err != nil {
 		errorWrite(w, http.StatusInternalServerError, err)
 		return
 	}
 
-	claims := &myClaims{
+	claims := &domain.MyClaims{
 		PassengerID: id,
 		Name:        user.Name,
 		Email:       user.Email,
-		Role:        "PASSENGER",
+		Role:        user.Role,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 		},
 	}
+
 	token, err := h.generateTokenMyClaims(claims)
 	if err != nil {
 		errorWrite(w, http.StatusInternalServerError, err)
@@ -151,8 +143,7 @@ func (h *rideHandler) loginPassenger(w http.ResponseWriter, r *http.Request) {
 		errorWrite(w, http.StatusBadRequest, err)
 		return
 	}
-	user.Name = "unknown user"
-	err = validateUserInput(user)
+	err = validateUserInput(user, false)
 	if err != nil {
 		errorWrite(w, http.StatusBadRequest, err)
 		return
@@ -177,12 +168,12 @@ func (h *rideHandler) loginPassenger(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if ourUser.Status != "ACTIVE" {
+	if ourUser.Status == "BANNED" {
 		errorWrite(w, http.StatusBadRequest, fmt.Errorf("wrong status: %s", ourUser.Status))
 		return
 	}
 
-	claims := &myClaims{
+	claims := &domain.MyClaims{
 		PassengerID: ourUser.ID,
 		Name:        ourUser.Name,
 		Email:       user.Email,
@@ -203,7 +194,7 @@ func (h *rideHandler) loginPassenger(w http.ResponseWriter, r *http.Request) {
 
 }
 
-func (h *rideHandler) getClaim(r *http.Request) (*myClaims, error) {
+func (h *rideHandler) getClaim(r *http.Request) (*domain.MyClaims, error) {
 	// 1. Получаем заголовок Authorization
 	auth := r.Header.Get("Authorization")
 	if auth == "" {
@@ -251,7 +242,7 @@ func (h *rideHandler) authMiddleware(next http.Handler) http.Handler {
 }
 
 func (h *rideHandler) createRide(w http.ResponseWriter, r *http.Request) {
-	claim, ok := r.Context().Value(userCtxKey).(*myClaims)
+	claim, ok := r.Context().Value(userCtxKey).(*domain.MyClaims)
 	if !ok {
 		errorWrite(w, http.StatusInternalServerError, fmt.Errorf("context error"))
 		return
@@ -268,7 +259,7 @@ func (h *rideHandler) createRide(w http.ResponseWriter, r *http.Request) {
 		errorWrite(w, http.StatusBadRequest, err)
 		return
 	}
-	if ride.PassengerID != claim.ID {
+	if ride.PassengerID != claim.PassengerID {
 		errorWrite(w, http.StatusBadRequest, fmt.Errorf("wrong id"))
 		return
 	}
@@ -333,11 +324,11 @@ func validatorRide(ride *domain.RideRequest) error {
 }
 
 // ValidateUserInput валидирует name, email и пароль
-func validateUserInput(user *domain.User) error {
-	if len(strings.TrimSpace(user.Name)) == 0 {
+func validateUserInput(user *domain.User, register bool) error {
+	if register && len(strings.TrimSpace(user.Name)) == 0 {
 		return errors.New("name cannot be empty")
 	}
-	if len(user.Name) < 2 {
+	if register && len(user.Name) < 2 {
 		return errors.New("name too short, minimum 2 characters")
 	}
 
@@ -351,6 +342,9 @@ func validateUserInput(user *domain.User) error {
 
 	if len(user.PasswordHash) < 6 {
 		return errors.New("password too short, minimum 6 characters")
+	}
+	if register && user.Role != "ADMIN" && user.Role != "PASSENGER" && user.Role != "DRIVER" {
+		return fmt.Errorf("invalid role: %s", user.Role)
 	}
 
 	return nil
