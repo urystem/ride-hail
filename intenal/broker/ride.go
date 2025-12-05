@@ -21,7 +21,7 @@ type RideBroker struct {
 	status         chan *statusStu
 	locationUpdate chan *locationStu
 	drRespone      chan *matchResponse
-	ch             *amqp091.Channel
+	ch             *amqp091.Channel //for publish with ch
 	isClosed       atomic.Bool
 }
 
@@ -165,8 +165,8 @@ func (r *RideBroker) createChannel(dsn string) error {
 	}
 
 	err = ch.QueueBind(
-		q3.Name,               // queue name
-		"",                    // routing key
+		q3.Name,           // queue name
+		"",                // routing key
 		"location_fanout", // exchange
 		false,
 		nil,
@@ -211,10 +211,10 @@ func (r *RideBroker) createChannel(dsn string) error {
 	if err != nil {
 		return errors.Join(r.conn.Close(), err)
 	}
-	err = ch.QueueBind(q4.Name, "driver.response.*", "driver_topic", false, nil)
-	if err != nil {
-		return errors.Join(r.conn.Close(), err)
-	}
+	// err = ch.QueueBind(q4.Name, "driver.response.*", "driver_topic", false, nil)
+	// if err != nil {
+	// 	return errors.Join(r.conn.Close(), err)
+	// }
 
 	msgs3, err := ch.Consume(
 		q4.Name,
