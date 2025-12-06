@@ -125,6 +125,10 @@ func (r *DriverBroker) createChannel(dsn string) error {
 		false,
 		nil,
 	)
+	if err != nil {
+		return errors.Join(r.conn.Close(), err)
+	}
+	
 	go func() {
 		for req := range requests {
 			r.req <- r.newRideRequest(&req)
@@ -154,4 +158,3 @@ func (r *DriverBroker) CloseRabbit() error {
 	defer r.logger.Info("rabbit closed")
 	return r.conn.Close()
 }
-

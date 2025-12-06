@@ -124,10 +124,11 @@ type DriverInfo struct {
 
 // driver income
 type Vehicle struct {
-	Make  string `json:"make"`
-	Model string `json:"model"`
-	Color string `json:"color"`
-	Plate string `json:"plate"`
+	Make        string `json:"make"`
+	Model       string `json:"model"`
+	Color       string `json:"color"`
+	Plate       string `json:"plate"`
+	VehicleYear uint16 `json:"vehicle_year"`
 }
 
 // ws
