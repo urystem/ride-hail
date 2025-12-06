@@ -10,36 +10,36 @@ import (
 )
 
 type Config struct {
-	DatabaseCfg  `yaml:"database"`
-	RabbitMQCfg  `yaml:"rabbitmq"`
-	WebSocketCfg `yaml:"websocket"`
-	ServicesCfg  `yaml:"services"`
+	DatabaseCfg  `yaml:"database" json:"database"`
+	RabbitMQCfg  `yaml:"rabbitmq" json:"rabbitmq"`
+	WebSocketCfg `yaml:"websocket" json:"websocket"`
+	ServicesCfg  `yaml:"services" json:"services"`
 }
 
 type DatabaseCfg struct {
-	Host     string `yaml:"host"`
-	Port     uint16 `yaml:"port"`
-	User     string `yaml:"user"`
-	Password string `yaml:"password"`
-	Database string `yaml:"database"`
+	Host     string `yaml:"host" json:"host"`
+	Port     uint16 `yaml:"port" json:"port"`
+	User     string `yaml:"user" json:"user"`
+	Password string `yaml:"password" json:"password"`
+	Database string `yaml:"database" json:"database"`
 }
 
 type RabbitMQCfg struct {
-	Host     string `yaml:"host"`
-	Port     uint16 `yaml:"port"`
-	User     string `yaml:"user"`
-	Password string `yaml:"password"`
+	Host     string `yaml:"host" json:"host"`
+	Port     uint16 `yaml:"port" json:"port"`
+	User     string `yaml:"user" json:"user"`
+	Password string `yaml:"password" json:"password"`
 }
 
 type WebSocketCfg struct {
-	Port uint16 `yaml:"port"`
+	Port uint16 `yaml:"port" json:"port"`
 }
 
 type ServicesCfg struct {
-	Secret                string
-	RideService           uint16 `yaml:"ride_service"`
-	DriverLocationService uint16 `yaml:"driver_location_service"`
-	AdminService          uint16 `yaml:"admin_service"`
+	Secret                string 
+	RideService           uint16 `yaml:"ride_service" json:"ride_service"`
+	DriverLocationService uint16 `yaml:"driver_location_service" json:"driver_location_service"`
+	AdminService          uint16 `yaml:"admin_service" json:"admin_service"`
 }
 
 func ParseConfig() (*Config, error) {

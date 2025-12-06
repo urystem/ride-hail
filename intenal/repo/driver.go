@@ -303,3 +303,80 @@ func (r *DriverRepo) CompleteRide(ctx context.Context, driverID uuid.UUID, req *
 	return tx.Commit(ctx)
 }
 
+// UpdateDriverLocation updates or inserts a driver's latest location.
+// Если драйвер по rideId куда-то едет (то есть у него статус EN_ROUTE или BUSY),
+// то location_history связывается с соответствующей поездкой.
+// Ошибку не выдаем, если драйвер OFFLINE — просто записываем его координаты.
+
+func (r *DriverRepo) UpdateDriverLocation(ctx context.Context, driverID uuid.UUID, loc *domain.LocationUpdate) (uuid.UUID, error) {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	defer tx.Rollback(ctx)
+
+	// Проверим статус драйвера, если надо (для rideID)
+	var status string
+	err = tx.QueryRow(ctx, `SELECT status FROM drivers WHERE id=$1`, driverID).Scan(&status)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	var returnID uuid.UUID
+	switch status {
+	case "OFFLINE":
+		return uuid.Nil, fmt.Errorf("cannot update driver offines")
+	case "AVAILABLE":
+		err = tx.QueryRow(ctx, `
+		INSERT INTO location_history (
+			driver_id, latitude, longitude, accuracy_meters, speed_kmh, heading_degrees
+		)
+		VALUES ($1, $2, $3, $4, $5, $6)
+		RETURNING id
+	`,
+			driverID,
+			loc.Latitude,
+			loc.Longitude,
+			loc.AccuracyMeters,
+			loc.SpeedKmh,
+			loc.HeadingDegrees,
+		).Scan(&returnID)
+		if err != nil {
+			return uuid.Nil, err
+		}
+	case "BUSY", "EN_ROUTE":
+		var rideID, coordinateID uuid.UUID
+		err = tx.QueryRow(ctx, `
+			SELECT ride_id, coordinate_id
+			FROM location_history 
+			WHERE driver_id = $1 
+			ORDER BY recorded_at DESC 
+			LIMIT 1
+		`, driverID).Scan(&rideID, &coordinateID)
+
+		if err != nil {
+			return uuid.Nil, fmt.Errorf("cannot get rideID from location_history for driver: %w", err)
+		}
+		err = tx.QueryRow(ctx, `
+		INSERT INTO location_history (
+			coordinate_id, driver_id, latitude, longitude, accuracy_meters, speed_kmh, heading_degrees, ride_id
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		RETURNING id`,
+			coordinateID,
+			driverID,
+			loc.Latitude,
+			loc.Longitude,
+			loc.AccuracyMeters,
+			loc.SpeedKmh,
+			loc.HeadingDegrees,
+			rideID,
+		).Scan(&returnID)
+
+		if err != nil {
+			return uuid.Nil, err
+		}
+	default:
+		return uuid.Nil, fmt.Errorf("invalid driver status: %s", status)
+	}
+	return returnID, tx.Commit(ctx)
+}

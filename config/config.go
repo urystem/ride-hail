@@ -6,31 +6,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"taxi-hailing/pkg"
 )
-
-type Config struct {
-	DB struct {
-		Host     string `json:"host"`
-		Port     int    `json:"port"`
-		User     string `json:"user"`
-		Password string `json:"password"`
-		Database string `json:"database"`
-	} `json:"database"`
-	RabbitMQ struct {
-		Host     string `json:"host"`
-		Port     int    `json:"port"`
-		User     string `json:"user"`
-		Password string `json:"password"`
-	} `json:"rabbitmq"`
-	Websocket struct {
-		Port int `json:"port"`
-	} `json:"websocket"`
-	Services struct {
-		RideService           int `json:"ride_service"`
-		DriverLocationService int `json:"driver_location_service"`
-		AdminService          int `json:"admin_service"`
-	} `json:"services"`
-}
 
 func loadEnvFile() error {
 	file, err := os.Open(".env")
@@ -74,7 +51,7 @@ func loadEnvFile() error {
 	return nil
 }
 
-func LoadConfig() (*Config, error) {
+func LoadConfig() (*pkg.Config, error) {
 	err := loadEnvFile()
 	if err != nil {
 		return nil, err
@@ -83,7 +60,7 @@ func LoadConfig() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	cfg := new(Config)
+	cfg := new(pkg.Config)
 	err = json.Unmarshal(b, cfg)
 	if err != nil {
 		return nil, err

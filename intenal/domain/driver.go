@@ -14,9 +14,16 @@ type Driver struct {
 }
 
 type CompleteRideRequest struct {
-	RideID               string    `json:"ride_id"`
-	FinalLocation        Location  `json:"final_location"`
-	ActualDistanceKm     float64   `json:"actual_distance_km"`
+	RideID                string   `json:"ride_id"`
+	FinalLocation         Location `json:"final_location"`
+	ActualDistanceKm      float64  `json:"actual_distance_km"`
 	ActualDurationMinutes int      `json:"actual_duration_minutes"`
 }
 
+type LocationUpdate struct {
+	Latitude       float64 `json:"latitude"`
+	Longitude      float64 `json:"longitude"`
+	AccuracyMeters float64 `json:"accuracy_meters"`
+	SpeedKmh       float64 `json:"speed_kmh"`
+	HeadingDegrees float64 `json:"heading_degrees"`
+}
