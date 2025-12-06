@@ -6,8 +6,8 @@ import (
 	"log/slog"
 	"net/http"
 	"sync"
-	"taxi-hailing/intenal/domain"
 	"taxi-hailing/intenal/repo"
+	"taxi-hailing/pkg"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -52,15 +52,15 @@ type authMessage struct {
 	Token string `json:"token"`
 }
 
-func (h *PassengerHub) parseTokenMyClaims(tokenStr string) (*domain.MyClaims, error) {
-	token, err := jwt.ParseWithClaims(tokenStr, &domain.MyClaims{}, func(t *jwt.Token) (any, error) {
+func (h *PassengerHub) parseTokenMyClaims(tokenStr string) (*pkg.MyClaims, error) {
+	token, err := jwt.ParseWithClaims(tokenStr, &pkg.MyClaims{}, func(t *jwt.Token) (any, error) {
 		return h.secret, nil
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	claims, ok := token.Claims.(*domain.MyClaims)
+	claims, ok := token.Claims.(*pkg.MyClaims)
 	if !ok {
 		return nil, fmt.Errorf("invalid struture")
 	}

@@ -2,19 +2,13 @@ package server
 
 import (
 	"context"
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
-	"strings"
 	"taxi-hailing/intenal/domain"
 	"taxi-hailing/intenal/service"
-	"time"
-
-	"github.com/golang-jwt/jwt/v5"
+	"taxi-hailing/pkg"
 )
 
 type rideServer struct {
@@ -24,10 +18,10 @@ type rideServer struct {
 func NewRideServer(port uint16, sec string, use *service.RideService) *rideServer {
 	mux := http.NewServeMux()
 	hand := &rideHandler{[]byte(sec), use}
-	mux.HandleFunc("POST /passenger/register", hand.registerPassenger)
-	mux.HandleFunc("POST /passenger/login", hand.loginPassenger)
+	mux.HandleFunc("POST /register", hand.registerPassenger)
+	mux.HandleFunc("POST /login", hand.loginPassenger)
 	mux.HandleFunc("GET /user/info", hand.infoUser)
-	mux.Handle("POST /rides", hand.authMiddleware(http.HandlerFunc(hand.createRide)))
+	mux.Handle("POST /rides", authMiddleware(http.HandlerFunc(hand.createRide), []byte(sec)))
 	mux.HandleFunc("POST /rides/{ride_id}/cancel", hand.cancelRide)
 	return &rideServer{
 		srv: http.Server{
@@ -50,49 +44,6 @@ type rideHandler struct {
 	use    *service.RideService
 }
 
-type registrationResponse struct {
-	ID    string `json:"id"`
-	Token string `json:"token"`
-}
-
-func (h *rideHandler) generateTokenMyClaims(claims *domain.MyClaims) (string, error) {
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString([]byte(h.secret))
-}
-
-func (h *rideHandler) parseTokenMyClaims(tokenStr string) (*domain.MyClaims, error) {
-	token, err := jwt.ParseWithClaims(tokenStr, &domain.MyClaims{}, func(t *jwt.Token) (any, error) {
-		return h.secret, nil
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	claims, ok := token.Claims.(*domain.MyClaims)
-	if !ok {
-		return nil, fmt.Errorf("invalid struture")
-	}
-	return claims, nil
-}
-func (h *rideHandler) hashPassword(password string) (string, error) {
-	mac := hmac.New(sha256.New, h.secret)
-	_, err := mac.Write([]byte(password))
-	if err != nil {
-		return "", err
-	}
-	//sum []byte қайтарады, әрі prefix қояды, бірақ парольға префикс керек емес
-	return hex.EncodeToString(mac.Sum(nil)), nil
-}
-
-func (h *rideHandler) checkPassword(password, storedHash string) (bool, error) {
-	hash, err := h.hashPassword(password)
-	if err != nil {
-		return false, err
-	}
-	// return hash == storedHash
-	return hmac.Equal([]byte(hash), []byte(storedHash)), nil
-}
-
 func (h *rideHandler) registerPassenger(w http.ResponseWriter, r *http.Request) {
 	user := new(domain.User)
 	err := json.NewDecoder(r.Body).Decode(user)
@@ -105,7 +56,7 @@ func (h *rideHandler) registerPassenger(w http.ResponseWriter, r *http.Request) 
 		errorWrite(w, http.StatusBadRequest, err)
 		return
 	}
-	user.PasswordHash, err = h.hashPassword(user.PasswordHash)
+	user.PasswordHash, err = pkg.HashPassword(user.PasswordHash, h.secret)
 	if err != nil {
 		errorWrite(w, http.StatusInternalServerError, err)
 		return
@@ -116,24 +67,20 @@ func (h *rideHandler) registerPassenger(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	claims := &domain.MyClaims{
+	claims := &pkg.MyClaims{
 		PassengerID: id,
 		Name:        user.Name,
 		Email:       user.Email,
 		Role:        user.Role,
-		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
-			IssuedAt:  jwt.NewNumericDate(time.Now()),
-		},
 	}
 
-	token, err := h.generateTokenMyClaims(claims)
+	token, err := pkg.GenerateTokenMyClaims(claims, h.secret)
 	if err != nil {
 		errorWrite(w, http.StatusInternalServerError, err)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(registrationResponse{id, token})
+	json.NewEncoder(w).Encode(pkg.RegistrationResponse{ID: id, Token: token})
 }
 
 func (h *rideHandler) loginPassenger(w http.ResponseWriter, r *http.Request) {
@@ -158,7 +105,7 @@ func (h *rideHandler) loginPassenger(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	check, err := h.checkPassword(user.PasswordHash, ourUser.PasswordHash)
+	check, err := pkg.CheckPassword(user.PasswordHash, ourUser.PasswordHash, h.secret)
 	if err != nil {
 		errorWrite(w, http.StatusInternalServerError, err)
 		return
@@ -173,48 +120,24 @@ func (h *rideHandler) loginPassenger(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	claims := &domain.MyClaims{
+	claims := &pkg.MyClaims{
 		PassengerID: ourUser.ID,
 		Name:        ourUser.Name,
 		Email:       user.Email,
 		Role:        ourUser.Role,
-		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
-			IssuedAt:  jwt.NewNumericDate(time.Now()),
-		},
 	}
 
-	token, err := h.generateTokenMyClaims(claims)
+	token, err := pkg.GenerateTokenMyClaims(claims, h.secret)
 	if err != nil {
 		errorWrite(w, http.StatusInternalServerError, err)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(registrationResponse{ourUser.ID, token})
-
-}
-
-func (h *rideHandler) getClaim(r *http.Request) (*domain.MyClaims, error) {
-	// 1. Получаем заголовок Authorization
-	auth := r.Header.Get("Authorization")
-	if auth == "" {
-		return nil, fmt.Errorf("missing Authorization header")
-	}
-
-	// 2. Проверяем что формат Bearer TOKEN
-	parts := strings.Split(auth, " ")
-	if len(parts) != 2 || parts[0] != "Bearer" {
-		return nil, fmt.Errorf("invalid Authorization header")
-	}
-
-	tokenStr := parts[1]
-
-	// 3. Парсим токен
-	return h.parseTokenMyClaims(tokenStr)
+	json.NewEncoder(w).Encode(pkg.RegistrationResponse{ID: ourUser.ID, Token: token})
 }
 
 func (h *rideHandler) infoUser(w http.ResponseWriter, r *http.Request) {
-	claim, err := h.getClaim(r)
+	claim, err := getClaim(r, h.secret)
 	if err != nil {
 		errorWrite(w, http.StatusBadRequest, err)
 		return
@@ -223,26 +146,8 @@ func (h *rideHandler) infoUser(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(claim)
 }
 
-type ctxKey string
-
-const userCtxKey ctxKey = "user"
-
-func (h *rideHandler) authMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		claim, err := h.getClaim(r)
-		if err != nil {
-			errorWrite(w, http.StatusBadRequest, err)
-			return
-		}
-		// кладем userID в контекст
-		ctx := context.WithValue(r.Context(), userCtxKey, claim)
-
-		next.ServeHTTP(w, r.WithContext(ctx))
-	})
-}
-
 func (h *rideHandler) createRide(w http.ResponseWriter, r *http.Request) {
-	claim, ok := r.Context().Value(userCtxKey).(*domain.MyClaims)
+	claim, ok := r.Context().Value(userCtxKey).(*pkg.MyClaims)
 	if !ok {
 		errorWrite(w, http.StatusInternalServerError, fmt.Errorf("context error"))
 		return
@@ -278,19 +183,6 @@ func (h *rideHandler) cancelRide(w http.ResponseWriter, r *http.Request) {
 
 }
 
-type myErr struct {
-	ErrStr string `json:"error"`
-}
-
-func errorWrite(w http.ResponseWriter, code int, err error) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(code)
-	msg := &myErr{
-		ErrStr: err.Error(),
-	}
-	json.NewEncoder(w).Encode(msg)
-}
-
 func validatorRide(ride *domain.RideRequest) error {
 	if ride.PassengerID == "" {
 		return fmt.Errorf("passenger_id is required")
@@ -319,33 +211,5 @@ func validatorRide(ride *domain.RideRequest) error {
 	if ride.RideType == "" {
 		return fmt.Errorf("ride_type is required")
 	}
-
-	return nil
-}
-
-// ValidateUserInput валидирует name, email и пароль
-func validateUserInput(user *domain.User, register bool) error {
-	if register && len(strings.TrimSpace(user.Name)) == 0 {
-		return errors.New("name cannot be empty")
-	}
-	if register && len(user.Name) < 2 {
-		return errors.New("name too short, minimum 2 characters")
-	}
-
-	if len(strings.TrimSpace(user.Email)) == 0 {
-		return errors.New("email cannot be empty")
-	}
-	// простая проверка email
-	if !strings.Contains(user.Email, "@") || !strings.Contains(user.Email, ".") {
-		return errors.New("invalid email format")
-	}
-
-	if len(user.PasswordHash) < 6 {
-		return errors.New("password too short, minimum 6 characters")
-	}
-	if register && user.Role != "ADMIN" && user.Role != "PASSENGER" && user.Role != "DRIVER" {
-		return fmt.Errorf("invalid role: %s", user.Role)
-	}
-
 	return nil
 }
