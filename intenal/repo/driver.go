@@ -226,6 +226,24 @@ func (r *DriverRepo) CompleteRide(ctx context.Context, driverID uuid.UUID, req *
 	}
 	defer tx.Rollback(ctx)
 
+	var currentStatus string
+	err = tx.QueryRow(ctx, `SELECT status FROM drivers WHERE id=$1`, driverID).Scan(&currentStatus)
+	if err != nil {
+		return err
+	}
+	if currentStatus != "BUSY" {
+		return fmt.Errorf("driver is not BUSY")
+	}
+	// update driver status to AVAILABLE, updated_at
+	_, err = tx.Exec(ctx, `
+		UPDATE drivers
+		SET status = 'AVAILABLE', updated_at = now()
+		WHERE id = $1
+	`, driverID)
+	if err != nil {
+		return fmt.Errorf("cannot update driver: %w", err)
+	}
+
 	// Validate driver/ride relationship, must be driver of this ride & status BUSY
 	var dbDriverID uuid.UUID
 	var status string
@@ -238,81 +256,50 @@ func (r *DriverRepo) CompleteRide(ctx context.Context, driverID uuid.UUID, req *
 	if dbDriverID != driverID {
 		return fmt.Errorf("driver is not assigned to this ride")
 	}
-	if status != "IN_PROGRESS" && status != "BUSY" {
+	if status != "IN_PROGRESS" {
 		return fmt.Errorf("ride is not in progress")
 	}
 
-	// update ride: set status, completed_at, final stats
-	_, err = tx.Exec(ctx, `
-		UPDATE rides
-		SET
-			status = 'COMPLETED',
-			completed_at = now(),
-			final_fare = COALESCE(final_fare, estimated_fare),
-			updated_at = now(),
-			distance_km = $1,
-			duration_minutes = $2
-		WHERE id = $3
-	`, req.ActualDistanceKm, req.ActualDurationMinutes, req.RideID)
-	if err != nil {
-		return fmt.Errorf("cannot update ride data: %w", err)
-	}
-
-	// update driver status to AVAILABLE, updated_at
-	_, err = tx.Exec(ctx, `
-		UPDATE drivers
-		SET status = 'AVAILABLE', updated_at = now()
-		WHERE id = $1
-	`, driverID)
-	if err != nil {
-		return fmt.Errorf("cannot update driver: %w", err)
-	}
-
-	// Mark the final arrival location as not current for previous locations
-	_, err = tx.Exec(ctx, `
-		UPDATE coordinates
-		SET is_current = false, updated_at = now()
-		WHERE entity_id = $1 AND entity_type = 'driver' AND is_current = true
-	`, driverID)
-	if err != nil {
-		return fmt.Errorf("cannot update coordinates: %w", err)
-	}
-	// Insert new coordinates for driver's final dropoff
-	var coordID uuid.UUID
+	var destinationCoordinateID, passengerID uuid.UUID
 	err = tx.QueryRow(ctx, `
-		INSERT INTO coordinates (
-			entity_id,
-			entity_type,
-			address,
-			latitude,
-			longitude,
-			is_current
-		) VALUES ($1, 'driver', '', $2, $3, true)
-		RETURNING id
-	`, driverID, req.FinalLocation.Lat, req.FinalLocation.Lng).Scan(&coordID)
+		SELECT passenger_id, destination_coordinate_id FROM rides WHERE id = $1
+	`, req.RideID).Scan(&destinationCoordinateID, &passengerID)
 	if err != nil {
-		return fmt.Errorf("cannot insert coordinate: %w", err)
+		return fmt.Errorf("cannot get destination coordinate id for ride: %w", err)
 	}
 
 	// Write to location_history
 	_, err = tx.Exec(ctx, `
 		INSERT INTO location_history (coordinate_id, driver_id, latitude, longitude, recorded_at, ride_id)
 		VALUES ($1, $2, $3, $4, now(), $5)
-	`, coordID, driverID, req.FinalLocation.Lat, req.FinalLocation.Lng, req.RideID)
+	`, destinationCoordinateID, driverID, req.FinalLocation.Lat, req.FinalLocation.Lng, req.RideID)
 	if err != nil {
 		return fmt.Errorf("cannot insert location_history: %w", err)
 	}
 
-	// Increment driver's total_rides and total_earnings
-	_, err = tx.Exec(ctx, `
-		UPDATE drivers
-		SET total_rides = total_rides + 1, total_earnings = total_earnings + COALESCE(
-			(SELECT final_fare FROM rides WHERE id = $1), 0), updated_at = now()
-		WHERE id = $2
-	`, req.RideID, driverID)
+	// Increment driver_sessions for current session: add ride and earnings
+	var fare float64
+	err = tx.QueryRow(ctx, `
+    SELECT fare_amount
+    FROM coordinates
+    WHERE entity_id = $1 AND is_current = TRUE`, passengerID).Scan(&fare)
 	if err != nil {
-		return fmt.Errorf("cannot update driver stats: %w", err)
+		return err
+	}
+
+	_, err = tx.Exec(ctx, `
+		UPDATE driver_sessions
+		SET 
+			total_rides = total_rides + 1,
+			total_earnings = total_earnings+ $1
+		WHERE driver_id = $2
+			AND ended_at IS NULL
+	`, fare, driverID)
+
+	if err != nil {
+		return fmt.Errorf("cannot update driver_sessions: %w", err)
 	}
 
 	return tx.Commit(ctx)
 }
+

@@ -45,8 +45,8 @@ create table driver_sessions (
     driver_id uuid references drivers(id) not null,
     started_at timestamptz not null default now(),
     ended_at timestamptz,
-    total_rides integer default 0,
-    total_earnings decimal(10,2) default 0
+    total_rides integer not null default 0,
+    total_earnings decimal(10,2) not null default 0
 );
 
 -- Location history for analytics and dispute resolution
