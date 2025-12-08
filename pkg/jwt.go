@@ -13,10 +13,10 @@ type RegistrationResponse struct {
 }
 
 type MyClaims struct {
-	PassengerID string
-	Name        string
-	Email       string
-	Role        string
+	UserID string
+	Name   string
+	Email  string
+	Role   string
 	jwt.RegisteredClaims
 }
 

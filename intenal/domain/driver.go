@@ -27,3 +27,27 @@ type LocationUpdate struct {
 	SpeedKmh       float64 `json:"speed_kmh"`
 	HeadingDegrees float64 `json:"heading_degrees"`
 }
+
+type DriverOnlineResponse struct {
+	Status    string `json:"status"`
+	SessionID string `json:"session_id"`
+	Message   string `json:"message"`
+}
+
+type DriverOfflineResponse struct {
+	Status         string               `json:"status"`
+	SessionID      string               `json:"session_id"`
+	SessionSummary DriverSessionSummary `json:"session_summary"`
+	Message        string               `json:"message"`
+}
+
+type DriverSessionSummary struct {
+	DurationHours  float64 `json:"duration_hours"`
+	RidesCompleted int     `json:"rides_completed"`
+	Earnings       float64 `json:"earnings"`
+}
+
+type DriverCoordinateUpdate struct {
+	CoordinateID string `json:"coordinate_id"`
+	UpdatedAt    string `json:"updated_at"`
+}

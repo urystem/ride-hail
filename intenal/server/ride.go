@@ -68,10 +68,10 @@ func (h *rideHandler) registerPassenger(w http.ResponseWriter, r *http.Request) 
 	}
 
 	claims := &pkg.MyClaims{
-		PassengerID: id,
-		Name:        user.Name,
-		Email:       user.Email,
-		Role:        user.Role,
+		UserID: id,
+		Name:   user.Name,
+		Email:  user.Email,
+		Role:   user.Role,
 	}
 
 	token, err := pkg.GenerateTokenMyClaims(claims, h.secret)
@@ -121,10 +121,10 @@ func (h *rideHandler) loginPassenger(w http.ResponseWriter, r *http.Request) {
 	}
 
 	claims := &pkg.MyClaims{
-		PassengerID: ourUser.ID,
-		Name:        ourUser.Name,
-		Email:       user.Email,
-		Role:        ourUser.Role,
+		UserID: ourUser.ID,
+		Name:   ourUser.Name,
+		Email:  user.Email,
+		Role:   ourUser.Role,
 	}
 
 	token, err := pkg.GenerateTokenMyClaims(claims, h.secret)
@@ -164,7 +164,7 @@ func (h *rideHandler) createRide(w http.ResponseWriter, r *http.Request) {
 		errorWrite(w, http.StatusBadRequest, err)
 		return
 	}
-	if ride.PassengerID != claim.PassengerID {
+	if ride.PassengerID != claim.UserID {
 		errorWrite(w, http.StatusBadRequest, fmt.Errorf("wrong id"))
 		return
 	}

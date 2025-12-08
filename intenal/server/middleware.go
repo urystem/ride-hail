@@ -12,6 +12,7 @@ type ctxKey string
 
 const userCtxKey ctxKey = "user"
 
+// for both services(driver and passenger)
 func authMiddleware(next http.Handler, secret []byte) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		claim, err := getClaim(r, secret)

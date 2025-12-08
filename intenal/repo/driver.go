@@ -94,20 +94,20 @@ func (r *DriverRepo) UpdateDriverToOnline(ctx context.Context, driverID uuid.UUI
 	return sessionID, tx.Commit(ctx)
 }
 
-func (r *DriverRepo) UpdateDriverToOffline(ctx context.Context, driverID uuid.UUID) (uuid.UUID, error) {
+func (r *DriverRepo) UpdateDriverToOffline(ctx context.Context, driverID uuid.UUID) (*uuid.UUID, error) {
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
-		return uuid.Nil, err
+		return nil, err
 	}
 	defer tx.Rollback(ctx)
 	var currentStatus string
 	err = tx.QueryRow(ctx, `SELECT status FROM drivers WHERE id=$1`, driverID).Scan(&currentStatus)
 	if err != nil {
-		return uuid.Nil, err
+		return nil, err
 	}
 
 	if currentStatus != "AVAILABLE" {
-		return uuid.Nil, fmt.Errorf("driver is not available")
+		return nil, fmt.Errorf("driver is not available")
 	}
 
 	_, err = tx.Exec(ctx, `
@@ -116,7 +116,7 @@ func (r *DriverRepo) UpdateDriverToOffline(ctx context.Context, driverID uuid.UU
 		WHERE id = $1
 	`, driverID)
 	if err != nil {
-		return uuid.Nil, err
+		return nil, err
 	}
 
 	var sessionID uuid.UUID
@@ -125,11 +125,33 @@ func (r *DriverRepo) UpdateDriverToOffline(ctx context.Context, driverID uuid.UU
 		SET ended_at = now()
 		WHERE driver_id = $1
 		AND ended_at IS NULL
+		RETURNING id
 	`, driverID).Scan(&sessionID)
 	if err != nil {
-		return uuid.Nil, err
+		return nil, err
 	}
-	return sessionID, tx.Commit(ctx)
+
+	return &sessionID, tx.Commit(ctx)
+}
+
+func (r *DriverRepo) GetDriverSessionSummary(ctx context.Context, sessionID *uuid.UUID) (*domain.DriverSessionSummary, error) {
+	if sessionID == nil {
+		return nil, fmt.Errorf("sessionID is nil")
+	}
+
+	summary := new(domain.DriverSessionSummary)
+	err := r.db.QueryRow(ctx, `
+		SELECT 
+			COALESCE(EXTRACT(EPOCH FROM (ended_at - started_at))/3600, 0) AS duration_hours,
+			COALESCE(total_rides, 0),
+			COALESCE(total_earnings, 0)
+		FROM driver_sessions
+		WHERE id = $1 AND ended_at IS NOT NULL
+	`, sessionID).Scan(&summary.DurationHours, &summary.RidesCompleted, &summary.Earnings)
+	if err != nil {
+		return nil, err
+	}
+	return summary, nil
 }
 
 func (r *DriverRepo) UpdateDriverToEnRoute(ctx context.Context, driverID uuid.UUID, rideID uuid.UUID, location *domain.Location) error {

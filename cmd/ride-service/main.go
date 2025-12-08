@@ -35,7 +35,7 @@ func main() {
 		os.Exit(1)
 	}
 	defer rabbit.CloseRabbit()
-	ws := ws.NewWebSocket(slogger, []byte(cfg.ServicesCfg.Secret), cfg.WebSocketCfg.Port, db)
+	ws := ws.NewWebSocket(slogger, []byte(cfg.ServicesCfg.Secret), cfg.WebSocketCfg.Port)
 
 	myService := service.NewRideService(context.Background(), slogger, db, rabbit, ws)
 	myServer := server.NewRideServer(cfg.RideService, cfg.ServicesCfg.Secret, myService)

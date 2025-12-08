@@ -29,6 +29,5 @@ func main() {
 		os.Exit(1)
 	}
 	defer rabbit.CloseRabbit()
-
-	
 }
+

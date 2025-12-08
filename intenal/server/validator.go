@@ -33,3 +33,30 @@ func validateUserInput(user *domain.User, register bool) error {
 
 	return nil
 }
+
+func validateLocation(lat, lng float64) error {
+	if lat < -90 || lat > 90 {
+		return fmt.Errorf("latitude must be between -90 and 90")
+	}
+	if lng < -180 || lng > 180 {
+		return fmt.Errorf("longitude must be between -180 and 180")
+	}
+	return nil
+}
+
+func validateUpdateLocation(loc *domain.LocationUpdate) error {
+	err := validateLocation(loc.Latitude, loc.Longitude)
+	if err != nil {
+		return err
+	}
+	if loc.AccuracyMeters < 0 {
+		return errors.New("accuracy_meters cannot be negative")
+	}
+	if loc.SpeedKmh < 0 {
+		return errors.New("speed_kmh cannot be negative")
+	}
+	if loc.HeadingDegrees < 0 || loc.HeadingDegrees >= 360 {
+		return errors.New("heading_degrees must be between 0 (inclusive) and 360 (exclusive)")
+	}
+	return nil
+}

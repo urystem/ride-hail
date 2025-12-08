@@ -1,6 +1,7 @@
 package broker
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -90,6 +91,7 @@ func (r *DriverBroker) createChannel(dsn string) error {
 		return errors.Join(r.conn.Close(), err)
 	}
 
+	//matching the ride
 	que, err := ch.QueueDeclare("driver_responses", true, false, false, false, nil)
 	if err != nil {
 		return errors.Join(r.conn.Close(), err)
@@ -112,6 +114,7 @@ func (r *DriverBroker) createChannel(dsn string) error {
 		return errors.Join(r.conn.Close(), err)
 	}
 
+	//at ride service
 	q1, err := ch.QueueDeclare("ride_requests", true, false, false, false, nil)
 	if err != nil {
 		return errors.Join(r.conn.Close(), err)
@@ -128,13 +131,35 @@ func (r *DriverBroker) createChannel(dsn string) error {
 	if err != nil {
 		return errors.Join(r.conn.Close(), err)
 	}
-	
+
 	go func() {
 		for req := range requests {
 			r.req <- r.newRideRequest(&req)
 		}
 	}()
 
+	//give updated status ride by driver service to ride service
+	q2, err := ch.QueueDeclare("ride_status", true, false, false, false, nil)
+	if err != nil {
+		return errors.Join(r.conn.Close(), err)
+	}
+	err = ch.QueueBind(q2.Name, "ride.status.*", "ride_topic", false, nil)
+	if err != nil {
+		return errors.Join(r.conn.Close(), err)
+	}
+
+	err = ch.ExchangeDeclare(
+		"location_fanout", // имя exchange
+		"fanout",          // тип (direct, fanout, topic, headers)
+		true,              // durable
+		false,             // auto-deleted
+		false,             // internal
+		false,             // no-wait
+		nil,               // args
+	)
+	if err != nil {
+		return errors.Join(r.conn.Close(), err)
+	}
 	return nil
 }
 
@@ -142,6 +167,10 @@ func (r *DriverBroker) newRideRequest(req *amqp091.Delivery) *request {
 	return &request{
 		req: req,
 	}
+}
+
+func (d *DriverBroker) GiveReqChannel() <-chan *request {
+	return d.req
 }
 
 func (r *request) GiveBody() (*domain.RideRequestRabbit, error) {
@@ -157,4 +186,41 @@ func (r *DriverBroker) CloseRabbit() error {
 	r.isClosed.Store(true)
 	defer r.logger.Info("rabbit closed")
 	return r.conn.Close()
+}
+
+func (r *DriverBroker) PublishStatus(ctx context.Context, status *domain.RideStatusUpdate) error {
+	b, err := json.Marshal(status)
+	if err != nil {
+		return err
+	}
+
+	return r.ch.PublishWithContext(
+		ctx,
+		"ride_topic",
+		fmt.Sprintf("ride.status.%s", status.Status),
+		false,
+		false,
+		amqp091.Publishing{
+			ContentType: "application/json",
+			Body:        b,
+		},
+	)
+}
+
+func (r *DriverBroker) PublishLocation(ctx context.Context, loc *domain.DriverLocationUpdate) error {
+	b, err := json.Marshal(loc)
+	if err != nil {
+		return err
+	}
+	return r.ch.PublishWithContext(
+		ctx,
+		"location_fanout",
+		"",
+		false,
+		false,
+		amqp091.Publishing{
+			ContentType: "application/json",
+			Body:        b,
+		},
+	)
 }

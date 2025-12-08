@@ -115,10 +115,10 @@ func (r *RideBroker) createChannel(dsn string) error {
 	if err != nil {
 		return errors.Join(r.conn.Close(), err)
 	}
-	err = ch.QueueBind(q2.Name, "ride.status.*", "ride_topic", false, nil)
-	if err != nil {
-		return errors.Join(r.conn.Close(), err)
-	}
+	// err = ch.QueueBind(q2.Name, "ride.status.*", "ride_topic", false, nil)
+	// if err != nil {
+	// 	return errors.Join(r.conn.Close(), err)
+	// }
 
 	msgs, err := ch.Consume(
 		q2.Name,
@@ -261,7 +261,8 @@ func (s *RideBroker) PublishRide(ctx context.Context, priority uint8, req *domai
 		return err
 	}
 
-	return s.ch.PublishWithContext(ctx,
+	return s.ch.PublishWithContext(
+		ctx,
 		"ride_topic",
 		fmt.Sprintf("ride.request.%s", req.RideType),
 		false,
