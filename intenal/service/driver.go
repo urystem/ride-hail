@@ -71,3 +71,39 @@ func (d *DriverService) UpdateDriverLocation(ctx context.Context, id string, loc
 		UpdatedAt:    time.Now().UTC().Format("2006-01-02T15:04:05Z"),
 	}, nil
 }
+
+func (d *DriverService) EnRoute(ctx context.Context, id string, req *domain.DriverLocationMessage) (*domain.DriverStartRideResponse, error) {
+	uid, err := uuid.Parse(id)
+	if err != nil {
+		return nil, err
+	}
+
+	err = d.db.UpdateDriverToEnRoute(ctx, uid, req)
+	if err != nil {
+		return nil, err
+	}
+	return &domain.DriverStartRideResponse{
+		RideID:    req.RideID,
+		Status:    "EN_ROUTE",
+		StartedAt: time.Now().UTC().Format("2006-01-02T15:04:05Z"),
+		Message:   "Ride enroute successfully",
+	}, nil
+}
+
+func (d *DriverService) Start(ctx context.Context, id string, req *domain.DriverLocationMessage) (*domain.DriverStartRideResponse, error) {
+	uid, err := uuid.Parse(id)
+	if err != nil {
+		return nil, err
+	}
+	err = d.db.UpdateDriverToBusy(ctx, uid, req)
+	if err != nil {
+		return nil, err
+	}
+	return &domain.DriverStartRideResponse{
+		RideID:    req.RideID,
+		Status:    "BUSY",
+		StartedAt: time.Now().UTC().Format("2006-01-02T15:04:05Z"),
+		Message:   "Ride started successfully",
+	}, nil
+}
+

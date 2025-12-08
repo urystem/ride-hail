@@ -154,7 +154,7 @@ func (r *DriverRepo) GetDriverSessionSummary(ctx context.Context, sessionID *uui
 	return summary, nil
 }
 
-func (r *DriverRepo) UpdateDriverToEnRoute(ctx context.Context, driverID uuid.UUID, rideID uuid.UUID, location *domain.Location) error {
+func (r *DriverRepo) UpdateDriverToEnRoute(ctx context.Context, driverID uuid.UUID, req *domain.DriverLocationMessage) error {
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return err
@@ -183,7 +183,7 @@ func (r *DriverRepo) UpdateDriverToEnRoute(ctx context.Context, driverID uuid.UU
 	var pickupCoordinateID uuid.UUID
 	err = tx.QueryRow(ctx, `
 		SELECT pickup_coordinate_id FROM rides WHERE id = $1
-	`, rideID).Scan(&pickupCoordinateID)
+	`, req.RideID).Scan(&pickupCoordinateID)
 	if err != nil {
 		return fmt.Errorf("cannot get pickup coordinate id for ride: %w", err)
 	}
@@ -191,7 +191,7 @@ func (r *DriverRepo) UpdateDriverToEnRoute(ctx context.Context, driverID uuid.UU
 	_, err = tx.Exec(ctx, `
 		INSERT INTO location_history (coordinate_id, driver_id, latitude, longitude, ride_id)
 		VALUES ($1, $2, $3, $4, $5)
-	`, pickupCoordinateID, driverID, location.Lat, location.Lng, rideID)
+	`, pickupCoordinateID, driverID, req.DriverLocation.Latitude, req.DriverLocation.Longitude, req.RideID)
 	if err != nil {
 		return err
 	}
@@ -199,7 +199,7 @@ func (r *DriverRepo) UpdateDriverToEnRoute(ctx context.Context, driverID uuid.UU
 	return tx.Commit(ctx)
 }
 
-func (r *DriverRepo) UpdateDriverToBusy(ctx context.Context, driverID uuid.UUID, rideID uuid.UUID, location *domain.Location) error {
+func (r *DriverRepo) UpdateDriverToBusy(ctx context.Context, driverID uuid.UUID, req *domain.DriverLocationMessage) error {
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return err
@@ -226,7 +226,7 @@ func (r *DriverRepo) UpdateDriverToBusy(ctx context.Context, driverID uuid.UUID,
 	var destinationCoordinateID uuid.UUID
 	err = tx.QueryRow(ctx, `
 		SELECT destination_coordinate_id FROM rides WHERE id = $1
-	`, rideID).Scan(&destinationCoordinateID)
+	`, req.RideID).Scan(&destinationCoordinateID)
 	if err != nil {
 		return fmt.Errorf("cannot get destination coordinate id for ride: %w", err)
 	}
@@ -234,7 +234,7 @@ func (r *DriverRepo) UpdateDriverToBusy(ctx context.Context, driverID uuid.UUID,
 	_, err = tx.Exec(ctx, `
 		INSERT INTO location_history (coordinate_id, driver_id, latitude, longitude, ride_id)
 		VALUES ($1, $2, $3, $4)
-	`, destinationCoordinateID, driverID, location.Lat, location.Lng, rideID)
+	`, destinationCoordinateID, driverID, req.DriverLocation.Latitude, req.DriverLocation.Longitude, req.RideID)
 	if err != nil {
 		return err
 	}

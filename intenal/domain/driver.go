@@ -51,3 +51,19 @@ type DriverCoordinateUpdate struct {
 	CoordinateID string `json:"coordinate_id"`
 	UpdatedAt    string `json:"updated_at"`
 }
+
+type DriverLocationMessage struct {
+	RideID         string `json:"ride_id"`
+	DriverLocation struct {
+		Latitude  float64 `json:"latitude"`
+		Longitude float64 `json:"longitude"`
+	} `json:"driver_location"`
+}
+
+type DriverStartRideResponse struct {
+	RideID    string `json:"ride_id"`
+	Status    string `json:"status"`
+	StartedAt string `json:"started_at"`
+	Message   string `json:"message"`
+}
+
