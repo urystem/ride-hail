@@ -198,5 +198,28 @@ func (h *driverHandler) driverStart(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *driverHandler) driverComplete(w http.ResponseWriter, r *http.Request) {
-	
+	claim, ok := r.Context().Value(userCtxKey).(*pkg.MyClaims)
+	if !ok {
+		errorWrite(w, http.StatusInternalServerError, fmt.Errorf("context error"))
+		return
+	}
+	id := r.PathValue("driver_id")
+	if claim.UserID != id {
+		errorWrite(w, http.StatusInternalServerError, fmt.Errorf("driver id != token's id"))
+		return
+	}
+	req := new(domain.CompleteRideRequest)
+	err := json.NewDecoder(r.Body).Decode(req)
+	if err != nil {
+		errorWrite(w, http.StatusBadRequest, err)
+		return
+	}
+	res, err := h.use.Complete(r.Context(), id, req)
+	if err != nil {
+		errorWrite(w, http.StatusBadRequest, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(res)
 }
+

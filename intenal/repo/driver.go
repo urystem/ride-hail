@@ -241,20 +241,20 @@ func (r *DriverRepo) UpdateDriverToBusy(ctx context.Context, driverID uuid.UUID,
 	return tx.Commit(ctx)
 }
 
-func (r *DriverRepo) CompleteRide(ctx context.Context, driverID uuid.UUID, req *domain.CompleteRideRequest) error {
+func (r *DriverRepo) CompleteRide(ctx context.Context, driverID uuid.UUID, req *domain.CompleteRideRequest) (float64, error) {
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer tx.Rollback(ctx)
 
 	var currentStatus string
 	err = tx.QueryRow(ctx, `SELECT status FROM drivers WHERE id=$1`, driverID).Scan(&currentStatus)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	if currentStatus != "BUSY" {
-		return fmt.Errorf("driver is not BUSY")
+		return 0, fmt.Errorf("driver is not BUSY")
 	}
 	// update driver status to AVAILABLE, updated_at
 	_, err = tx.Exec(ctx, `
@@ -263,7 +263,7 @@ func (r *DriverRepo) CompleteRide(ctx context.Context, driverID uuid.UUID, req *
 		WHERE id = $1
 	`, driverID)
 	if err != nil {
-		return fmt.Errorf("cannot update driver: %w", err)
+		return 0, fmt.Errorf("cannot update driver: %w", err)
 	}
 
 	// Validate driver/ride relationship, must be driver of this ride & status BUSY
@@ -273,13 +273,13 @@ func (r *DriverRepo) CompleteRide(ctx context.Context, driverID uuid.UUID, req *
 		SELECT driver_id, status FROM rides WHERE id = $1
 	`, req.RideID).Scan(&dbDriverID, &status)
 	if err != nil {
-		return fmt.Errorf("cannot load ride: %w", err)
+		return 0, fmt.Errorf("cannot load ride: %w", err)
 	}
 	if dbDriverID != driverID {
-		return fmt.Errorf("driver is not assigned to this ride")
+		return 0, fmt.Errorf("driver is not assigned to this ride")
 	}
 	if status != "IN_PROGRESS" {
-		return fmt.Errorf("ride is not in progress")
+		return 0, fmt.Errorf("ride is not in progress")
 	}
 
 	var destinationCoordinateID, passengerID uuid.UUID
@@ -287,7 +287,7 @@ func (r *DriverRepo) CompleteRide(ctx context.Context, driverID uuid.UUID, req *
 		SELECT passenger_id, destination_coordinate_id FROM rides WHERE id = $1
 	`, req.RideID).Scan(&destinationCoordinateID, &passengerID)
 	if err != nil {
-		return fmt.Errorf("cannot get destination coordinate id for ride: %w", err)
+		return 0, fmt.Errorf("cannot get destination coordinate id for ride: %w", err)
 	}
 
 	// Write to location_history
@@ -296,7 +296,7 @@ func (r *DriverRepo) CompleteRide(ctx context.Context, driverID uuid.UUID, req *
 		VALUES ($1, $2, $3, $4, now(), $5)
 	`, destinationCoordinateID, driverID, req.FinalLocation.Lat, req.FinalLocation.Lng, req.RideID)
 	if err != nil {
-		return fmt.Errorf("cannot insert location_history: %w", err)
+		return 0, fmt.Errorf("cannot insert location_history: %w", err)
 	}
 
 	// Increment driver_sessions for current session: add ride and earnings
@@ -306,7 +306,7 @@ func (r *DriverRepo) CompleteRide(ctx context.Context, driverID uuid.UUID, req *
     FROM coordinates
     WHERE entity_id = $1 AND is_current = TRUE`, passengerID).Scan(&fare)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	_, err = tx.Exec(ctx, `
@@ -319,10 +319,10 @@ func (r *DriverRepo) CompleteRide(ctx context.Context, driverID uuid.UUID, req *
 	`, fare, driverID)
 
 	if err != nil {
-		return fmt.Errorf("cannot update driver_sessions: %w", err)
+		return 0, fmt.Errorf("cannot update driver_sessions: %w", err)
 	}
 
-	return tx.Commit(ctx)
+	return fare, tx.Commit(ctx)
 }
 
 // UpdateDriverLocation updates or inserts a driver's latest location.

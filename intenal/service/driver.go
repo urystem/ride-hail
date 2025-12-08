@@ -107,3 +107,22 @@ func (d *DriverService) Start(ctx context.Context, id string, req *domain.Driver
 	}, nil
 }
 
+func (d *DriverService) Complete(ctx context.Context, id string, req *domain.CompleteRideRequest) (*domain.DriverCompleteRideResponse, error) {
+	uid, err := uuid.Parse(id)
+	if err != nil {
+		return nil, err
+	}
+	fare, err := d.db.CompleteRide(ctx, uid, req)
+	if err != nil {
+		return nil, err
+	}
+	return &domain.DriverCompleteRideResponse{
+		RideID:         req.RideID,
+		Status:         "AVAILABLE",
+		CompletedAt:    time.Now().UTC().Format("2006-01-02T15:04:05Z"),
+		DriverEarnings: fare,
+		Message:        "Ride completed successfully",
+	}, nil
+}
+
+// func (d *DriverService) 

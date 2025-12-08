@@ -67,3 +67,10 @@ type DriverStartRideResponse struct {
 	Message   string `json:"message"`
 }
 
+type DriverCompleteRideResponse struct {
+	RideID         string  `json:"ride_id"`
+	Status         string  `json:"status"`
+	CompletedAt    string  `json:"completed_at"`
+	DriverEarnings float64 `json:"driver_earnings"`
+	Message        string  `json:"message"`
+}
